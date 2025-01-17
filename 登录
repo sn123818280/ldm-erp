@@ -1,0 +1,159 @@
+import configparser
+import sys
+import pyodbc
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QMessageBox, QHBoxLayout, QSpacerItem, QSizePolicy
+from PyQt6.QtGui import QPalette, QColor, QPixmap, QPainter, QBrush, QFont
+from PyQt6.QtCore import Qt
+import os
+
+
+class LoginWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        self.setWindowTitle("LDM-ERP- 登录")
+        self.setGeometry(100, 100, 300, 300)
+
+        self.main_layout = QVBoxLayout()  # 主布局
+
+        # 设置标签和输入框的字体为微软雅黑，字号 14，加粗，颜色为黑色
+        label_font = QFont("微软雅黑", 14)
+        label_font.setBold(True)
+        label_palette = QPalette()
+        label_palette.setColor(QPalette.ColorRole.WindowText, QColor(0, 0, 0))
+
+        # 员工编号输入框及其标签
+        self.employee_id_layout = QVBoxLayout()
+        self.label_username = QLabel("员工编号:")
+        self.label_username.setFont(label_font)
+        self.label_username.setPalette(label_palette)
+        self.edit_username = QLineEdit()
+        self.edit_username.textChanged.connect(self.show_employee_name)
+        self.edit_username.setFont(label_font)
+        self.employee_id_layout.addWidget(self.label_username)
+        self.employee_id_layout.addWidget(self.edit_username)
+        self.main_layout.addLayout(self.employee_id_layout)
+
+        # 员工名称及其标签
+        self.employee_name_layout = QVBoxLayout()
+        self.label_employee_name = QLabel("员工名称:")
+        self.label_employee_name.setFont(label_font)
+        self.label_employee_name.setPalette(label_palette)
+        self.employee_name_layout.addWidget(self.label_employee_name)
+        self.main_layout.addLayout(self.employee_name_layout)
+
+        # 密码输入框及其标签
+        self.password_layout = QVBoxLayout()
+        self.label_password = QLabel("密码:")
+        self.label_password.setFont(label_font)
+        self.label_password.setPalette(label_palette)
+        self.edit_password = QLineEdit()
+        self.edit_password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.edit_password.setFont(label_font)
+        self.password_layout.addWidget(self.label_password)
+        self.password_layout.addWidget(self.edit_password)
+        self.main_layout.addLayout(self.password_layout)
+
+        # 登录按钮
+        self.button_login = QPushButton("登录")
+        self.button_login.setFont(label_font)
+        self.button_login.setPalette(label_palette)
+        self.button_login.clicked.connect(self.login)
+        self.main_layout.addWidget(self.button_login)
+
+        self.setLayout(self.main_layout)
+
+        self.employee_name = ""
+
+        # 从 Config.ini 文件读取数据库连接信息
+        self.read_config()
+
+        # 加载背景图片
+        self.background_image = QPixmap(os.path.join(os.getcwd(), "主登录图片.png"))
+
+    def read_config(self):
+        config = configparser.ConfigParser()
+        config_file = os.path.join(os.getcwd(), "Config.ini")
+        try:
+            config.read(config_file)
+            self.server = config.get('Database', 'ServerName')
+            self.database = config.get('Database', 'Database')
+            self.username_db = config.get('Database', 'LogId')
+            self.password_db = config.get('Database', 'LOGPASS')
+        except configparser.NoSectionError:
+            QMessageBox.critical(self, "配置文件错误", "Config.ini 文件中没有 Database 节，请检查文件内容。")
+        except configparser.Error as e:
+            QMessageBox.critical(self, "配置文件错误", f"读取 Config.ini 文件时发生错误: {str(e)}")
+        except KeyError as e:
+            QMessageBox.critical(self, "配置文件错误", f"Config.ini 文件中缺少键: {str(e)}")
+
+    def show_employee_name(self):
+        ygbh = self.edit_username.text()
+        if ygbh:
+            try:
+                conn = pyodbc.connect(
+                    f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={self.server};DATABASE={self.database};UID={self.username_db};PWD={self.password_db}'
+                )
+                cursor = conn.cursor()
+                # 查询员工表，获取员工名称
+                cursor.execute(
+                    "SELECT ygmc FROM t_ygda WHERE ygbh =?", (ygbh,)
+                )
+                result = cursor.fetchone()
+                cursor.close()
+                conn.close()
+                if result:
+                    self.employee_name = result[0]
+                    self.label_employee_name.setText(f"员工名称: {self.employee_name}")
+                else:
+                    self.employee_name = ""
+                    self.label_employee_name.setText("员工名称: 未找到")  # 修改为更明确的提示
+            except pyodbc.Error as e:
+                QMessageBox.critical(self, "数据库错误", f"数据库连接错误: {str(e)}")
+                self.employee_name = ""
+                self.label_employee_name.setText("员工名称: 数据库错误")  # 修改为更明确的提示
+        else:
+            self.employee_name = ""
+            self.label_employee_name.setText("员工名称:")
+
+    def login(self):
+        ygbh = self.edit_username.text()
+        password = self.edit_password.text()
+        if self.check_login(ygbh, password):
+            QMessageBox.information(self, "登录成功", "登录成功！")
+        else:
+            QMessageBox.warning(self, "登录失败", "用户名或密码错误！")
+
+    def check_login(self, ygbh, password):
+        try:
+            conn = pyodbc.connect(
+                f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={self.server};DATABASE={self.database};UID={self.username_db};PWD={self.password_db}'
+            )
+            cursor = conn.cursor()
+            # 查询员工表，验证登录信息
+            cursor.execute(
+                "SELECT * FROM t_ygda WHERE ygbh =? AND mm =?", (ygbh, password)
+            )
+            result = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if result:
+                return True
+            else:
+                return False
+        except pyodbc.Error as e:
+            QMessageBox.critical(self, "数据库错误", f"数据库连接错误: {str(e)}")
+            return False
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QBrush(self.background_image.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding)))
+        painter.drawRect(self.rect())
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = LoginWindow()
+    window.show()
+    sys.exit(app.exec())
