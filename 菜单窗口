@@ -1,0 +1,310 @@
+import sys
+import os
+import configparser
+import pyodbc
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QLineEdit, QMessageBox, QHBoxLayout, QSpacerItem, QSizePolicy
+from PyQt6.QtGui import QPalette, QColor, QPixmap, QPainter, QBrush, QFont, QIcon
+from PySide6.QtUiTools import QUiLoader
+from PyQt6.QtCore import Qt
+
+
+class DatabaseConnection:
+    def __init__(self, config_file):
+        self.config = configparser.ConfigParser()
+        self.config.read(config_file)
+        self.server = self.config.get('Database', 'ServerName')
+        self.database = self.config.get('Database', 'Database')
+        self.username_db = self.config.get('Database', 'LogId')
+        self.password_db = self.config.get('Database', 'LOGPASS')
+
+    def connect(self):
+        try:
+            conn = pyodbc.connect(
+                f'DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={self.server};DATABASE={self.database};UID={self.username_db};PWD={self.password_db}'
+            )
+            return conn
+        except pyodbc.Error as e:
+            raise pyodbc.Error(f"数据库连接错误: {str(e)}")
+
+
+class LoginWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        self.setWindowTitle("LDM-ERP- 登录")
+        self.setGeometry(100, 100, 300, 300)
+
+        self.main_layout = QVBoxLayout()  # 主布局
+
+        # 设置标签和输入框的字体为微软雅黑，字号 14，加粗，颜色为黑色
+        label_font = QFont("微软雅黑", 14)
+        label_font1 = QFont("微软雅黑", 12)
+
+        label_font.setBold(True)
+        label_palette = QPalette()
+        label_palette.setColor(QPalette.ColorRole.WindowText, QColor(0, 0, 0))
+
+        # 员工编号输入框及其标签
+        self.employee_id_layout = QVBoxLayout()
+        self.label_username = QLabel("员工编号:")
+        self.label_username.setFont(label_font)
+        self.label_username.setPalette(label_palette)
+        self.edit_username = QLineEdit()
+        self.edit_username.textChanged.connect(self.show_employee_name)
+        self.edit_username.setFont(label_font)
+        self.employee_id_layout.addWidget(self.label_username)
+        self.employee_id_layout.addWidget(self.edit_username)
+
+        # 员工名称及其标签
+        self.employee_name_layout = QHBoxLayout()
+        self.label_employee_name = QLabel("员工名称:")
+        self.label_employee_name.setFont(label_font1)
+        self.label_employee_name.setPalette(label_palette)
+        self.employee_name_layout.addWidget(self.label_employee_name)
+
+        # 添加水平间距
+        spacer = QSpacerItem(20, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.employee_name_layout.addItem(spacer)
+
+        self.employee_id_layout.addLayout(self.employee_name_layout)
+        self.main_layout.addLayout(self.employee_id_layout)
+        # 设置布局的对齐方式为顶部对齐
+        self.employee_id_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+
+        # 密码输入框及其标签
+        self.password_layout = QHBoxLayout()  # 使用 QHBoxLayout 而不是 QVBoxLayout
+        self.label_password = QLabel("密码:")
+        self.label_password.setFont(label_font)
+        self.label_password.setPalette(label_palette)
+        self.edit_password = QLineEdit()
+        self.edit_password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.edit_password.setFont(label_font)
+        self.password_layout.addWidget(self.label_password)
+        self.password_layout.addWidget(self.edit_password)
+        self.main_layout.addLayout(self.password_layout)
+        # 为密码输入框及其标签添加垂直间距
+        spacer_above_password = QSpacerItem(20, 60, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.main_layout.addItem(spacer_above_password)
+        self.main_layout.addLayout(self.password_layout)
+
+        # 设置布局的边距
+        self.employee_id_layout.setContentsMargins(0, 10, 0, 0)  # 上、右、下、左
+        self.employee_name_layout.setContentsMargins(0, 10, 0, 40)  # 上、右、下、左
+
+        # 登录按钮
+        self.button_login = QPushButton("登录")
+        self.button_login.setFont(label_font)
+        self.button_login.setPalette(label_palette)
+        self.button_login.clicked.connect(self.login)
+        self.main_layout.addWidget(self.button_login)
+
+        self.setLayout(self.main_layout)
+
+        self.employee_name = ""
+
+        # 从 Config.ini 文件读取数据库连接信息
+        self.read_config()
+
+        # 加载背景图片
+        self.background_image = QPixmap(os.path.join(os.getcwd(), "主登录图片.png"))
+
+    def read_config(self):
+        config_file = os.path.join(os.getcwd(), "Config.ini")
+        try:
+            self.db_connection = DatabaseConnection(config_file)
+        except configparser.NoSectionError:
+            QMessageBox.critical(self, "配置文件错误", "Config.ini 文件中没有 Database 节，请检查文件内容。")
+        except configparser.Error as e:
+            QMessageBox.critical(self, "配置文件错误", f"读取 Config.ini 文件时发生错误: {str(e)}")
+        except KeyError as e:
+            QMessageBox.critical(self, "配置文件错误", f"Config.ini 文件中缺少键: {str(e)}")
+
+    def show_employee_name(self):
+        ygbh = self.edit_username.text()
+        if ygbh:
+            try:
+                conn = self.db_connection.connect()
+                cursor = conn.cursor()
+                # 查询员工表，获取员工名称
+                cursor.execute(
+                    "SELECT ygmc FROM t_ygda WHERE ygbh =?", (ygbh,)
+                )
+                result = cursor.fetchone()
+                cursor.close()
+                conn.close()
+                if result:
+                    self.employee_name = result[0]
+                    self.label_employee_name.setText(f"员工名称: {self.employee_name}")
+                else:
+                    self.employee_name = ""
+                    self.label_employee_name.setText("员工名称: 未找到")
+            except pyodbc.Error as e:
+                QMessageBox.critical(self, "数据库错误", f"数据库连接错误: {str(e)}")
+                self.employee_name = ""
+                self.label_employee_name.setText("员工名称: 数据库错误")
+        else:
+            self.employee_name = ""
+            self.label_employee_name.setText("员工名称:")
+
+    def login(self):
+        ygbh = self.edit_username.text()
+        password = self.edit_password.text()
+        if self.check_login(ygbh, password):
+            QMessageBox.information(self, "登录成功", "登录成功！")
+            self.open_menu_window()
+        else:
+            QMessageBox.warning(self, "登录失败", "用户名或密码错误！")
+
+    def check_login(self, ygbh, password):
+        try:
+            conn = self.db_connection.connect()
+            cursor = conn.cursor()
+            # 查询员工表，验证登录信息
+            cursor.execute(
+                "SELECT * FROM t_ygda WHERE ygbh =? AND mm =?", (ygbh, password)
+            )
+            result = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if result:
+                return True
+            else:
+                return False
+        except pyodbc.Error as e:
+            QMessageBox.critical(self, "数据库错误", f"数据库连接错误: {str(e)}")
+            return False
+
+    def open_menu_window(self):
+        self.close()  # 关闭登录窗口
+        self.menu_window = MenuWindow()  # 创建菜单窗口
+        self.menu_window.show()  # 显示菜单窗口
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QBrush(self.background_image.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding)))
+        painter.drawRect(self.rect())
+
+
+class MenuWindow(QWidget):
+    def __init__ (self):
+        super().__init__()
+        self.setWindowTitle("菜单")
+        self.setGeometry(100, 100, 1000, 600)
+
+        # 设置主布局为垂直布局
+
+        self.main_layout = QVBoxLayout()
+        # 设置布局的全局间距为 5 像素
+        self.main_layout.setSpacing(5)
+        # 设置窗口的背景颜色为白色
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(255, 255, 255))
+        self.setPalette(palette)
+
+        # 设置按钮的字体为微软雅黑，字号 14，加粗，颜色为黑色
+        button_font = QFont("微软雅黑", 14)
+        button_font.setBold(True)
+        button_palette = QPalette()
+        button_palette.setColor(QPalette.ColorRole.WindowText, QColor(0, 0, 0))
+
+        # 基础管理按钮
+        self.button_basic_management = QPushButton("基础管理")
+        self.button_basic_management.setFont(button_font)
+        self.button_basic_management.setPalette(button_palette)
+        self.button_basic_management.setFixedWidth(100)  # 设置按钮宽度为 100
+        self.button_basic_management.setStyleSheet(
+            "QPushButton {"
+            "    background-color: #4CAF50; "
+            "    border: 2px solid #4CAF50; "
+            "    border-radius: 5px; "
+            "    color: white; "
+            "    padding: 5px;"
+            "}"
+            "QPushButton:hover {"
+            "    background-color: #45a049; "
+            "    border: 2px solid #45a049; "
+            "}"
+        )
+        self.main_layout.addWidget(self.button_basic_management)
+
+
+        # 仓库管理按钮
+        self.button_warehouse_management = QPushButton("仓库管理")
+        self.button_warehouse_management.setFont(button_font)
+        self.button_warehouse_management.setPalette(button_palette)
+        self.button_warehouse_management.setFixedWidth(100)  # 设置按钮宽度为 100
+        self.button_warehouse_management.setStyleSheet(
+            "QPushButton {"
+            "    background-color: #2196F3; "
+            "    border: 2px solid #2196F3; "
+            "    border-radius: 5px; "
+            "    color: white; "
+            "    padding: 5px;"
+            "}"
+            "QPushButton:hover {"
+            "    background-color: #1e88e5; "
+            "    border: 2px solid #1e88e5; "
+            "}"
+        )
+        self.main_layout.addWidget(self.button_warehouse_management)
+
+
+        # 业务管理按钮
+        self.button_business_management = QPushButton("业务管理")
+        self.button_business_management.setFont(button_font)
+        self.button_business_management.setPalette(button_palette)
+        self.button_business_management.setFixedWidth(100)  # 设置按钮宽度为 100
+        self.button_business_management.setStyleSheet(
+            "QPushButton {"
+            "    background-color: #FF9800; "
+            "    border: 2px solid #FF9800; "
+            "    border-radius: 5px; "
+            "    color: white; "
+            "    padding: 5px;"
+            "}"
+            "QPushButton:hover {"
+            "    background-color: #f57c00; "
+            "    border: 2px solid #f57c00; "
+            "}"
+        )
+        self.main_layout.addWidget(self.button_business_management)
+
+
+        # 人事管理按钮
+        self.button_hr_management = QPushButton("人事管理")
+        self.button_hr_management.setFont(button_font)
+        self.button_hr_management.setPalette(button_palette)
+        self.button_hr_management.setFixedWidth(100)  # 设置按钮宽度为 100
+        self.button_hr_management.setStyleSheet(
+            "QPushButton {"
+            "    background-color: #9C27B0; "
+            "    border: 2px solid #9C27B0; "
+            "    border-radius: 5px; "
+            "    color: white; "
+            "    padding: 5px;"
+            "}"
+            "QPushButton:hover {"
+            "    background-color: #8e24aa; "
+            "    border: 2px solid #8e24aa; "
+            "}"
+        )
+        self.main_layout.addWidget(self.button_hr_management)
+
+
+        # 调整布局的左边距
+        self.main_layout.setContentsMargins(20, 0, 0, 0)
+
+
+
+        self.setLayout(self.main_layout)
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    # 设置应用程序图标
+    app.setWindowIcon(QIcon(os.path.join(os.path.abspath(os.getcwd()), "LOGO.ico")))
+    window = LoginWindow()
+    window.show()
+    sys.exit(app.exec())
